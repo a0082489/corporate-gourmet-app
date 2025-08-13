@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>コーポレートグルメ+ - 地図連携グルメ情報共有アプリ</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .rating-star {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .rating-star:hover,
+        .rating-star.active {
+            color: #fbbf24;
+        }
+        .restaurant-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .restaurant-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        #map {
+            height: 400px;
+            width: 100%;
+            border-radius: 0.5rem;
+        }
+        .map-popup {
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .distance-badge {
+            background: linear-gradient(45deg, #3b82f6, #1d4ed8);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+         {
+            .no-print { display: none !important; }
+            body { font-size: 12px; }
+            #map { height: 300px !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- ヘッダー -->
+    <header class="bg-red-600 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold flex items-center">
+                    <i class="fas fa-utensils mr-3"></i>
+                    コーポレートグルメ+
+                </h1>
+                <div id="userInfo" class="hidden">
+                    <span id="welcomeMessage" class="mr-4"></span>
+                    <button onclick="logout()" class="bg-red-700 hover:bg-red-800 px-4 py-2 rounded transition">
+                        <i class="fas fa-sign-out-alt mr-2"></i>ログアウト
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ログイン・登録フォーム -->
+    <div id="authSection" class="container mx-auto px-4 py-8 max-w-md">
+        <div class="bg-white rounded-lg shadow-lg p-8">
+            <h2 class="text-2xl font-bold text-center mb-6 text-gray-800">会員登録・ログイン</h2>
+            
+            <div id="loginForm">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">会社名</label>
+                    <input type="text" id="companyName" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="例: 株式会社サンプル">
+                </div>
+                
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">ユーザーネーム</label>
+                    <input type="text" id="username" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="例: 田中太郎">
+                </div>
+                
+                <button onclick="login()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition">
+                    <i class="fas fa-sign-in-alt mr-2"></i>ログイン
+                </button>
+                
+                <p class="text-sm text-gray-600 text-center mt-4">
+                    初回利用時は自動的にアカウントが作成されます
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div id="mainContent" class="hidden">
+        <!-- 位置情報・地図セクション -->
+        <div class="container mx-auto px-4 py-6">
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center">
+                        <i class="fas fa-map-marked-alt mr-3 text-red-600"></i>
+                        周辺のおすすめ店舗
+                    </h3>
+                    <button onclick="getCurrentLocation()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
+                        <i class="fas fa-location-arrow mr-2"></i>現在地を取得
+                    </button>
+                </div>
+                
+                <div id="locationStatus" class="mb-4 p-3 rounded-lg bg-gray-100 text-gray-600 hidden">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    <span id="locationText">位置情報を取得中...</span>
+                </div>
+                
+                <div id="map" class="mb-4"></div>
+                
+                <div class="text-sm text-gray-600">
+                    <i class="fas fa-lightbulb mr-2"></i>
+                    地図上の店舗マーカーをクリックすると、その店舗の情報が投稿フォームに自動入力されます
+                </div>
+            </div>
+        </div>
+
+        <!-- 投稿フォーム -->
+        <div class="container mx-auto px-4 py-6">
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h3 class="text-xl font-bold mb-6 text-gray-800 flex items-center">
+                    <i class="fas fa-plus-circle mr-3 text-red-600"></i>
+                    おすすめ店舗を投稿
+                </h3>
+                
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">店舗名*</label>
+                        <input type="text" id="restaurantName" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="店舗名を入力">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">ジャンル</label>
+                        <select id="genre" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500">
+                            <option value="">ジャンルを選択</option>
+                            <option value="和食">和食</option>
+                            <option value="洋食">洋食</option>
+                            <option value="中華">中華</option>
+                            <option value="イタリアン">イタリアン</option>
+                            <option value="フレンチ">フレンチ</option>
+                            <option value="居酒屋">居酒屋</option>
+                            <option value="カフェ">カフェ</option>
+                            <option value="ファストフード">ファストフード</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">エリア</label>
+                        <input type="text" id="area" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="例: 新宿、渋谷">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">評価</label>
+                        <div class="flex items-center">
+                            <i class="fas fa-star rating-star text-gray-300 text-xl mr-1" data-rating="1"></i>
+                            <i class="fas fa-star rating-star text-gray-300 text-xl mr-1" data-rating="2"></i>
+                            <i class="fas fa-star rating-star text-gray-300 text-xl mr-1" data-rating="3"></i>
+                            <i class="fas fa-star rating-star text-gray-300 text-xl mr-1" data-rating="4"></i>
+                            <i class="fas fa-star rating-star text-gray-300 text-xl mr-1" data-rating="5"></i>
+                            <span id="ratingText" class="ml-2 text-gray-600"></span>
+                        </div>
+                        <input type="hidden" id="rating" value="0">
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">店舗リンク（食べログ、ぐるなび等）</label>
+                    <input type="url" id="restaurantLink" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="https://...">
+                </div>
+                
+                <div class="mt-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">コメント</label>
+                    <textarea id="comment" rows="3" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500" placeholder="おすすめポイントや感想を記入してください"></textarea>
+                </div>
+                
+                <div class="mt-6 flex justify-end">
+                    <button onclick="addRestaurant()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition">
+                        <i class="fas fa-paper-plane mr-2"></i>投稿する
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- フィルター・検索 -->
+        <div class="container mx-auto px-4 mb-6">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-bold mb-4 text-gray-800 flex items-center">
+                    <i class="fas fa-filter mr-3 text-red-600"></i>
+                    検索・フィルター
+                </h3>
+                
+                <div class="grid md:grid-cols-4 gap-4">
+                    <div>
+                        <input type="text" id="searchKeyword" placeholder="店舗名で検索" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500">
+                    </div>
+                    
+                    <div>
+                        <select id="filterGenre" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500">
+                            <option value="">すべてのジャンル</option>
+                            <option value="和食">和食</option>
+                            <option value="洋食">洋食</option>
+                            <option value="中華">中華</option>
+                            <option value="イタリアン">イタリアン</option>
+                            <option value="フレンチ">フレンチ</option>
+                            <option value="居酒屋">居酒屋</option>
+                            <option value="カフェ">カフェ</option>
+                            <option value="ファストフード">ファストフード</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <select id="filterRating" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-red-500">
+                            <option value="">すべての評価</option>
+                            <option value="5">★★★★★</option>
+                            <option value="4">★★★★☆ 以上</option>
+                            <option value="3">★★★☆☆ 以上</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <button onclick="applyFilters()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                            <i class="fas fa-search mr-2"></i>検索
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 会社情報表示 -->
+        <div class="container mx-auto px-4 mb-6">
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 id="companyTitle" class="text-xl font-bold text-gray-800 flex items-center">
+                    <i class="fas fa-building mr-3 text-red-600"></i>
+                </h3>
+                <p class="text-gray-600 mt-2">同じ会社のメンバーが投稿したおすすめ店舗一覧</p>
+            </div>
+        </div>
+
+        <!-- レストラン一覧 -->
+        <div class="container mx-auto px-4 pb-8">
+            <div id="restaurantList" class="grid gap-6">
+                <!-- レストラン情報がここに表示されます -->
+            </div>
+            
+            <div id="noResults" class="hidden text-center py-12">
+                <i class="fas fa-search text-6xl text-gray-300 mb-4"></i>
+                <p class="text-gray-500 text-lg">該当する店舗が見つかりませんでした</p>
+                <p class="text-gray-400 mt-2">検索条件を変更してお試しください</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let restaurants = JSON.parse(localStorage.getItem('restaurants')) || [];
+        let currentRating = 0;
+        let map = null;
+        let userLocation = null;
+        let nearbyRestaurants = [];
+
+        // サンプル近隣店舗データ（実際のアプリでは外部APIから取得）
+        const sampleNearbyRestaurants = [
+            { name: "居酒屋 福福", genre: "居酒屋", lat: 35.6895, lng: 139.6923, distance: 150 },
+            { name: "カフェ モーニング", genre: "カフェ", lat: 35.6885, lng: 139.6913, distance: 200 },
+            { name: "中華料理 龍宮", genre: "中華", lat: 35.6905, lng: 139.6933, distance: 180 },
+            { name: "イタリアン ベラヴィスタ", genre: "イタリアン", lat: 35.6875, lng: 139.6903, distance: 250 },
+            { name: "寿司処 まつ", genre: "和食", lat: 35.6915, lng: 139.6943, distance: 300 },
+            { name: "ラーメン 一番", genre: "その他", lat: 35.6865, lng: 139.6893, distance: 320 },
+            { name: "フレンチ ル・ボンヴィヴァン", genre: "フレンチ", lat: 35.6925, lng: 139.6953, distance: 280 },
+            { name: "焼肉 牛太郎", genre: "その他", lat: 35.6855, lng: 139.6883, distance: 400 }
+        ];
+
+        // 初期化
+        window.onload = function() {
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                showMainContent();
+            }
+            
+            setupRatingSystem();
+            displayRestaurants();
+        };
+
+        // 評価システムセットアップ
+        function setupRatingSystem() {
+            const stars = document.querySelectorAll('.rating-star');
+            stars.forEach(star => {
+                star.addEventListener('click', function() {
+                    const rating = parseInt(this.dataset.rating);
+                    setRating(rating);
+                });
+                
+                star.addEventListener('mouseenter', function() {
+                    const rating = parseInt(this.dataset.rating);
+                    highlightStars(rating);
+                });
+            });
+            
+            document.querySelector('.flex.items-center').addEventListener('mouseleave', function() {
+                highlightStars(currentRating);
+            });
+        }
+
+        function setRating(rating) {
+            currentRating = rating;
+            document.getElementById('rating').value = rating;
+            highlightStars(rating);
+            
+            const ratingText = ['', '★☆☆☆☆', '★★☆☆☆', '★★★☆☆', '★★★★☆', '★★★★★'][rating];
+            document.getElementById('ratingText').textContent = ratingText;
+        }
+
+        function highlightStars(rating) {
+            const stars = document.querySelectorAll('.rating-star');
+            stars.forEach((star, index) => {
+                if (index < rating) {
+                    star.classList.add('active');
+                    star.classList.remove('text-gray-300');
+                } else {
+                    star.classList.remove('active');
+                    star.classList.add('text-gray-300');
+                }
+            });
+        }
+
+        // 地図初期化
+        function initMap() {
+            // デフォルトの東京駅座標
+            const defaultLat = 35.6812;
+            const defaultLng = 139.7671;
+            
+            map = L.map('map').setView([defaultLat, defaultLng], 15);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // 現在地取得を試行
+            setTimeout(() => {
+                getCurrentLocation();
+            }, 500);
+        }
+
+        // 現在地取得
+        function getCurrentLocation() {
+            const locationStatus = document.getElementById('locationStatus');
+            const locationText = document.getElementById('locationText');
+            
+            locationStatus.classList.remove('hidden');
+            locationText.textContent = '位置情報を取得中...';
+            
+            if (!navigator.geolocation) {
+                locationText.textContent = 'このブラウザでは位置情報がサポートされていません';
+                locationStatus.className = 'mb-4 p-3 rounded-lg bg-red-100 text-red-600';
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    
+                    locationText.textContent = `現在地: ${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}`;
+                    locationStatus.className = 'mb-4 p-3 rounded-lg bg-green-100 text-green-600';
+                    
+                    // 地図を現在地に移動
+                    map.setView([userLocation.lat, userLocation.lng], 16);
+                    
+                    // 現在地マーカー追加
+                    L.marker([userLocation.lat, userLocation.lng])
+                        .addTo(map)
+                        .bindPopup('<div class="map-popup"><strong>現在地</strong></div>')
+                        .openPopup();
+                    
+                    // 近隣店舗を表示
+                    displayNearbyRestaurants();
+                },
+                function(error) {
+                    let errorMessage = '';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage = '位置情報の取得が拒否されました';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage = '位置情報が利用できません';
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage = '位置情報の取得がタイムアウトしました';
+                            break;
+                        default:
+                            errorMessage = '位置情報の取得に失敗しました';
+                            break;
+                    }
+                    locationText.textContent = errorMessage;
+                    locationStatus.className = 'mb-4 p-3 rounded-lg bg-red-100 text-red-600';
+                    
+                    // デフォルト位置で近隣店舗を表示
+                    userLocation = { lat: 35.6895, lng: 139.6923 }; // 新宿駅周辺
+                    displayNearbyRestaurants();
+                }
+            );
+        }
+
+        // 近隣店舗表示
+        function displayNearbyRestaurants() {
+            if (!userLocation) return;
+            
+            // 現在地からの距離を計算
+            nearbyRestaurants = sampleNearbyRestaurants.map(restaurant => {
+                const distance = calculateDistance(
+                    userLocation.lat, userLocation.lng,
+                    restaurant.lat, restaurant.lng
+                );
+                return { ...restaurant, distance: Math.round(distance) };
+            }).sort((a, b) => a.distance - b.distance);
+
+            // 地図にマーカーを追加
+            nearbyRestaurants.forEach(restaurant => {
+                const marker = L.marker([restaurant.lat, restaurant.lng])
+                    .addTo(map);
+                
+                const popupContent = `
+                    <div class="map-popup">
+                        <h4 class="font-bold text-lg mb-2">${restaurant.name}</h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            <i class="fas fa-utensils mr-1"></i>${restaurant.genre}
+                        </p>
+                        <p class="text-sm text-blue-600 mb-3">
+                            <i class="fas fa-walking mr-1"></i>徒歩約${Math.ceil(restaurant.distance / 80)}分 (${restaurant.distance}m)
+                        </p>
+                        <button onclick="selectRestaurantFromMap('${restaurant.name}', '${restaurant.genre}')" 
+                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">
+                            <i class="fas fa-plus mr-1"></i>この店舗を投稿
+                        </button>
+                    </div>
+                `;
+                
+                marker.bindPopup(popupContent);
+            });
+        }
+
+        // 地図から店舗選択
+        function selectRestaurantFromMap(name, genre) {
+            document.getElementById('restaurantName').value = name;
+            document.getElementById('genre').value = genre;
+            
+            // フォームまでスクロール
+            document.getElementById('restaurantName').scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+            });
+            
+            // 入力フィールドをハイライト
+            document.getElementById('restaurantName').focus();
+            document.getElementById('restaurantName').style.borderColor = '#ef4444';
+            setTimeout(() => {
+                document.getElementById('restaurantName').style.borderColor = '';
+            }, 2000);
+        }
+
+        // 距離計算（ハバーサイン公式）
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // 地球の半径（メートル）
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // ログイン
+        function login() {
+            const companyName = document.getElementById('companyName').value.trim();
+            const username = document.getElementById('username').value.trim();
+            
+            if (!companyName || !username) {
+                alert('会社名とユーザーネームを入力してください');
+                return;
+            }
+            
+            currentUser = {
+                companyName: companyName,
+                username: username,
+                id: Date.now().toString()
+            };
+            
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            showMainContent();
+        }
+
+        // メインコンテンツ表示
+        function showMainContent() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('mainContent').classList.remove('hidden');
+            document.getElementById('userInfo').classList.remove('hidden');
+            document.getElementById('welcomeMessage').textContent = `${currentUser.companyName} ${currentUser.username}さん`;
+            document.getElementById('companyTitle').innerHTML = `<i class="fas fa-building mr-3 text-red-600"></i>${currentUser.companyName} のおすすめ店舗`;
+            
+            // 地図初期化
+            setTimeout(() => {
+                initMap();
+            }, 100);
+            
+            displayRestaurants();
+        }
+
+        // ログアウト
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('mainContent').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+            
+            // フォームリセット
+            document.getElementById('companyName').value = '';
+            document.getElementById('username').value = '';
+            
+            // 地図リセット
+            if (map) {
+                map.remove();
+                map = null;
+            }
+        }
+
+        // レストラン追加
+        function addRestaurant() {
+            const name = document.getElementById('restaurantName').value.trim();
+            const genre = document.getElementById('genre').value;
+            const area = document.getElementById('area').value.trim();
+            const rating = parseInt(document.getElementById('rating').value);
+            const link = document.getElementById('restaurantLink').value.trim();
+            const comment = document.getElementById('comment').value.trim();
+            
+            if (!name) {
+                alert('店舗名を入力してください');
+                return;
+            }
+            
+            if (rating === 0) {
+                alert('評価を選択してください');
+                return;
+            }
+            
+            const restaurant = {
+                id: Date.now().toString(),
+                name: name,
+                genre: genre || 'その他',
+                area: area,
+                rating: rating,
+                link: link,
+                comment: comment,
+                companyName: currentUser.companyName,
+                username: currentUser.username,
+                createdAt: new Date().toISOString()
+            };
+            
+            restaurants.push(restaurant);
+            localStorage.setItem('restaurants', JSON.stringify(restaurants));
+            
+            // フォームリセット
+            document.getElementById('restaurantName').value = '';
+            document.getElementById('genre').value = '';
+            document.getElementById('area').value = '';
+            document.getElementById('restaurantLink').value = '';
+            document.getElementById('comment').value = '';
+            setRating(0);
+            
+            displayRestaurants();
+            alert('店舗情報を投稿しました！');
+        }
+
+        // レストラン一覧表示
+        function displayRestaurants() {
+            if (!currentUser) return;
+            
+            const companyRestaurants = restaurants.filter(r => r.companyName === currentUser.companyName);
+            const container = document.getElementById('restaurantList');
+            const noResults = document.getElementById('noResults');
+            
+            if (companyRestaurants.length === 0) {
+                container.innerHTML = '';
+                noResults.classList.remove('hidden');
+                return;
+            }
+            
+            noResults.classList.add('hidden');
+            
+            // 評価順でソート
+            companyRestaurants.sort((a, b) => b.rating - a.rating);
+            
+            container.innerHTML = companyRestaurants.map(restaurant => `
+                <div class="restaurant-card bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex-1">
+                            <h4 class="text-xl font-bold text-gray-800 mb-2">${restaurant.name}</h4>
+                            <div class="flex items-center mb-2">
+                                <span class="text-yellow-500 text-lg mr-2">${'★'.repeat(restaurant.rating)}${'☆'.repeat(5-restaurant.rating)}</span>
+                                <span class="text-gray-600">${restaurant.rating}/5</span>
+                            </div>
+                        </div>
+                        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">${restaurant.genre}</span>
+                    </div>
+                    
+                    ${restaurant.area ? `<div class="flex items-center mb-3 text-gray-600">
+                        <i class="fas fa-map-marker-alt mr-2"></i>
+                        ${restaurant.area}
+                    </div>` : ''}
+                    
+                    ${restaurant.comment ? `<div class="mb-4">
+                        <p class="text-gray-700 leading-relaxed">${restaurant.comment}</p>
+                    </div>` : ''}
+                    
+                    <div class="flex justify-between items-center">
+                        <div class="text-sm text-gray-500">
+                            <i class="fas fa-user mr-1"></i>
+                            ${restaurant.username} • ${new Date(restaurant.createdAt).toLocaleDateString('ja-JP')}
+                        </div>
+                        
+                        ${restaurant.link ? `<a href="${restaurant.link}" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition text-sm">
+                            <i class="fas fa-external-link-alt mr-2"></i>店舗詳細
+                        </a>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // フィルター適用
+        function applyFilters() {
+            if (!currentUser) return;
+            
+            const keyword = document.getElementById('searchKeyword').value.trim().toLowerCase();
+            const genreFilter = document.getElementById('filterGenre').value;
+            const ratingFilter = parseInt(document.getElementById('filterRating').value) || 0;
+            
+            let filteredRestaurants = restaurants.filter(r => r.companyName === currentUser.companyName);
+            
+            if (keyword) {
+                filteredRestaurants = filteredRestaurants.filter(r => 
+                    r.name.toLowerCase().includes(keyword) ||
+                    r.comment.toLowerCase().includes(keyword) ||
+                    r.area.toLowerCase().includes(keyword)
+                );
+            }
+            
+            if (genreFilter) {
+                filteredRestaurants = filteredRestaurants.filter(r => r.genre === genreFilter);
+            }
+            
+            if (ratingFilter) {
+                filteredRestaurants = filteredRestaurants.filter(r => r.rating >= ratingFilter);
+            }
+            
+            const container = document.getElementById('restaurantList');
+            const noResults = document.getElementById('noResults');
+            
+            if (filteredRestaurants.length === 0) {
+                container.innerHTML = '';
+                noResults.classList.remove('hidden');
+                return;
+            }
+            
+            noResults.classList.add('hidden');
+            
+            // 評価順でソート
+            filteredRestaurants.sort((a, b) => b.rating - a.rating);
+            
+            container.innerHTML = filteredRestaurants.map(restaurant => `
+                <div class="restaurant-card bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex-1">
+                            <h4 class="text-xl font-bold text-gray-800 mb-2">${restaurant.name}</h4>
+                            <div class="flex items-center mb-2">
+                                <span class="text-yellow-500 text-lg mr-2">${'★'.repeat(restaurant.rating)}${'☆'.repeat(5-restaurant.rating)}</span>
+                                <span class="text-gray-600">${restaurant.rating}/5</span>
+                                ${userLocation ? `<span class="distance-badge ml-2">${calculateDistanceToRestaurant(restaurant)}m</span>` : ''}
+                            </div>
+                        </div>
+                        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">${restaurant.genre}</span>
+                    </div>
+                    
+                    ${restaurant.area ? `<div class="flex items-center mb-3 text-gray-600">
+                        <i class="fas fa-map-marker-alt mr-2"></i>
+                        ${restaurant.area}
+                    </div>` : ''}
+                    
+                    ${restaurant.comment ? `<div class="mb-4">
+                        <p class="text-gray-700 leading-relaxed">${restaurant.comment}</p>
+                    </div>` : ''}
+                    
+                    <div class="flex justify-between items-center">
+                        <div class="text-sm text-gray-500">
+                            <i class="fas fa-user mr-1"></i>
+                            ${restaurant.username} • ${new Date(restaurant.createdAt).toLocaleDateString('ja-JP')}
+                        </div>
+                        
+                        ${restaurant.link ? `<a href="${restaurant.link}" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition text-sm">
+                            <i class="fas fa-external-link-alt mr-2"></i>店舗詳細
+                        </a>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // レストランまでの距離を計算（近似値）
+        function calculateDistanceToRestaurant(restaurant) {
+            if (!userLocation) return '';
+            
+            // サンプル店舗データから近似距離を返す
+            const found = nearbyRestaurants.find(r => r.name === restaurant.name);
+            return found ? found.distance : Math.floor(Math.random() * 1000) + 100;
+        }
+    </script>
+</body>
+</html>
+    <script id="html_badge_script1">
+        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
+            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDs2XDgKJOmBJON5MF5XWdMH2v53rU7vMVXkbBi2oZP1M5yYXNKp%2FYDcFvPrQ%2FwX5xGRAOncwB85PfCZAobCgpzVKV3NBLXsN8Tqctxj5n7xFibr3tWVznkiOhgn6I5p3aGt61kt9ZzZvCnbial%2F2JwmTdO7t5cmmyCZotWQBwLphiOVh%2Fe1KGRW7uw2SisAKVYbXt0gSQS5ilPw8oMmUyhaQI0TtlJO8mzFcDNj7aIg4mUzOTMYFurSbgkGveIzj7ok3t%2BnJd9EYp%2Bgk7FbNoPq0Ar8AjQh0r1RUQyizKQf%2FFGw5VJyY4CPstOObFKfxZicIK9Puzr%2Bw%2FdOdKYuBKrN7td9hDlhp9LZroclisQx7C07TiS8KYk8jGb6LO1mOVtsDoVCmr2ZE6DX%2FxsUfMwcPu%2FblCYaofs8yzaxIbdvMEV5pkoObHEFL30q1W9s0Mg8S%2Bb9JBo85o9DXU3sZWw6PsPJ7pe0yKt7yohJI6OTTXM8ssZOzPIFP4Gq%2FNVRLZ2oO1p7iJQEVbDYpR7jdP4g%3D";
+        window.__genspark_locale = "ja-JP";
+        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDs2XDgKJOmBJON5MF5XWdMH2v53rU7vMVXkbBi2oZP1M5yYXNKp/YDcFvPrQ/wX5xGRAOncwB85PfCZAobCgpzVKV3NBLXsN8Tqctxj5n7xFibr3tWVznkiOhgn6I5p3aGt61kt9ZzZvCnbial/2JwmTdO7t5cmmyCZotWQBwLphiOVh/e1KGRW7uw2SisAKVYbXt0gSQS5ilPw8oMmUyhaQI0TtlJO8mzFcDNj7aIg4mUzOTMYFurSbgkGveIzj7ok3t+nJd9EYp+gk7FbNoPq0Ar8AjQh0r1RUQyizKQf/FGw5VJyY4CPstOObFKfxZicIK9Puzr+w/dOdKYuBKrN7td9hDlhp9LZroclisQx7C07TiS8KYk8jGb6LO1mOVtsDoVCmr2ZE6DX/xsUfMwcPu/blCYaofs8yzaxIbdvMEV5pkoObHEFL30q1W9s0Mg8S+b9JBo85o9DXU3sZWw6PsPJ7pe0yKt7yohJI6OTTXM8ssZOzPIFP4Gq/NVRLZ2oO1p7iJQEVbDYpR7jdP4g=";
+    </script>
+    
+    <script id="html_notice_dialog_script" src="https://www.genspark.ai/notice_dialog.js"></script>
+    

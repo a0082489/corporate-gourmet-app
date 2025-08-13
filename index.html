@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>コーポレートグルメ+ - 地図連携グルメ情報共有アプリ</title>
+    <title>コーポレートグルメ Pro - 高機能地図連動グルメアプリ</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -24,6 +24,18 @@
             transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
         }
+        .store-info-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .store-info-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .store-info-card.selected {
+            border: 2px solid #ef4444;
+            background: #fef2f2;
+        }
         #map {
             height: 400px;
             width: 100%;
@@ -40,10 +52,37 @@
             font-size: 0.75rem;
             font-weight: 600;
         }
+        .google-rating {
+            background: linear-gradient(45deg, #34d399, #10b981);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .operating-status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-open {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .status-closed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .store-info-container {
+            max-height: 300px;
+            overflow-y: auto;
+        }
          {
             .no-print { display: none !important; }
             body { font-size: 12px; }
             #map { height: 300px !important; }
+            .store-info-container { max-height: 200px !important; }
         }
     </style>
 </head>
@@ -54,7 +93,7 @@
             <div class="flex justify-between items-center">
                 <h1 class="text-2xl font-bold flex items-center">
                     <i class="fas fa-utensils mr-3"></i>
-                    コーポレートグルメ+
+                    コーポレートグルメ Pro
                 </h1>
                 <div id="userInfo" class="hidden">
                     <span id="welcomeMessage" class="mr-4"></span>
@@ -118,6 +157,26 @@
                 <div class="text-sm text-gray-600">
                     <i class="fas fa-lightbulb mr-2"></i>
                     地図上の店舗マーカーをクリックすると、その店舗の情報が投稿フォームに自動入力されます
+                </div>
+            </div>
+        </div>
+
+        <!-- 周辺店舗情報表示セクション -->
+        <div id="storeInfoSection" class="container mx-auto px-4 py-6 hidden">
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h3 class="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                    <i class="fas fa-store mr-3 text-red-600"></i>
+                    周辺店舗詳細情報
+                    <span id="storeCount" class="ml-3 bg-red-100 text-red-800 px-2 py-1 rounded-full text-sm"></span>
+                </h3>
+                
+                <div id="storeInfoList" class="store-info-container space-y-4">
+                    <!-- 店舗情報カードがここに表示されます -->
+                </div>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    店舗カードをクリックして選択後、「この店舗を評価」ボタンで投稿フォームに情報が自動入力されます
                 </div>
             </div>
         </div>
@@ -266,17 +325,98 @@
         let map = null;
         let userLocation = null;
         let nearbyRestaurants = [];
+        let selectedStoreId = null;
 
-        // サンプル近隣店舗データ（実際のアプリでは外部APIから取得）
+        // サンプル近隣店舗データ（Googleレビュー、営業状況を含む）
         const sampleNearbyRestaurants = [
-            { name: "居酒屋 福福", genre: "居酒屋", lat: 35.6895, lng: 139.6923, distance: 150 },
-            { name: "カフェ モーニング", genre: "カフェ", lat: 35.6885, lng: 139.6913, distance: 200 },
-            { name: "中華料理 龍宮", genre: "中華", lat: 35.6905, lng: 139.6933, distance: 180 },
-            { name: "イタリアン ベラヴィスタ", genre: "イタリアン", lat: 35.6875, lng: 139.6903, distance: 250 },
-            { name: "寿司処 まつ", genre: "和食", lat: 35.6915, lng: 139.6943, distance: 300 },
-            { name: "ラーメン 一番", genre: "その他", lat: 35.6865, lng: 139.6893, distance: 320 },
-            { name: "フレンチ ル・ボンヴィヴァン", genre: "フレンチ", lat: 35.6925, lng: 139.6953, distance: 280 },
-            { name: "焼肉 牛太郎", genre: "その他", lat: 35.6855, lng: 139.6883, distance: 400 }
+            { 
+                id: 'store1',
+                name: "居酒屋 福福", 
+                genre: "居酒屋", 
+                lat: 35.6895, 
+                lng: 139.6923, 
+                distance: 150,
+                googleRating: 4.2,
+                isOpen: true,
+                openHours: "17:00-24:00"
+            },
+            { 
+                id: 'store2',
+                name: "カフェ モーニング", 
+                genre: "カフェ", 
+                lat: 35.6885, 
+                lng: 139.6913, 
+                distance: 200,
+                googleRating: 4.5,
+                isOpen: true,
+                openHours: "7:00-20:00"
+            },
+            { 
+                id: 'store3',
+                name: "中華料理 龍宮", 
+                genre: "中華", 
+                lat: 35.6905, 
+                lng: 139.6933, 
+                distance: 180,
+                googleRating: 3.8,
+                isOpen: false,
+                openHours: "11:30-14:30, 17:30-22:00"
+            },
+            { 
+                id: 'store4',
+                name: "イタリアン ベラヴィスタ", 
+                genre: "イタリアン", 
+                lat: 35.6875, 
+                lng: 139.6903, 
+                distance: 250,
+                googleRating: 4.7,
+                isOpen: true,
+                openHours: "11:00-22:00"
+            },
+            { 
+                id: 'store5',
+                name: "寿司処 まつ", 
+                genre: "和食", 
+                lat: 35.6915, 
+                lng: 139.6943, 
+                distance: 300,
+                googleRating: 4.3,
+                isOpen: false,
+                openHours: "17:00-23:00"
+            },
+            { 
+                id: 'store6',
+                name: "ラーメン 一番", 
+                genre: "その他", 
+                lat: 35.6865, 
+                lng: 139.6893, 
+                distance: 320,
+                googleRating: 4.0,
+                isOpen: true,
+                openHours: "11:00-15:00, 18:00-24:00"
+            },
+            { 
+                id: 'store7',
+                name: "フレンチ ル・ボンヴィヴァン", 
+                genre: "フレンチ", 
+                lat: 35.6925, 
+                lng: 139.6953, 
+                distance: 280,
+                googleRating: 4.8,
+                isOpen: false,
+                openHours: "18:00-23:00"
+            },
+            { 
+                id: 'store8',
+                name: "焼肉 牛太郎", 
+                genre: "その他", 
+                lat: 35.6855, 
+                lng: 139.6883, 
+                distance: 400,
+                googleRating: 4.1,
+                isOpen: true,
+                openHours: "17:00-2:00"
+            }
         ];
 
         // 初期化
@@ -362,6 +502,7 @@
             if (!navigator.geolocation) {
                 locationText.textContent = 'このブラウザでは位置情報がサポートされていません';
                 locationStatus.className = 'mb-4 p-3 rounded-lg bg-red-100 text-red-600';
+                showDefaultLocation();
                 return;
             }
 
@@ -406,11 +547,15 @@
                     locationText.textContent = errorMessage;
                     locationStatus.className = 'mb-4 p-3 rounded-lg bg-red-100 text-red-600';
                     
-                    // デフォルト位置で近隣店舗を表示
-                    userLocation = { lat: 35.6895, lng: 139.6923 }; // 新宿駅周辺
-                    displayNearbyRestaurants();
+                    showDefaultLocation();
                 }
             );
+        }
+
+        // デフォルト位置表示
+        function showDefaultLocation() {
+            userLocation = { lat: 35.6895, lng: 139.6923 }; // 新宿駅周辺
+            displayNearbyRestaurants();
         }
 
         // 近隣店舗表示
@@ -449,6 +594,81 @@
                 
                 marker.bindPopup(popupContent);
             });
+
+            // 店舗情報セクションを表示
+            displayStoreInfoCards();
+        }
+
+        // 店舗情報カード表示
+        function displayStoreInfoCards() {
+            const storeInfoSection = document.getElementById('storeInfoSection');
+            const storeInfoList = document.getElementById('storeInfoList');
+            const storeCount = document.getElementById('storeCount');
+            
+            storeInfoSection.classList.remove('hidden');
+            storeCount.textContent = `${nearbyRestaurants.length}件`;
+            
+            storeInfoList.innerHTML = nearbyRestaurants.map(store => `
+                <div class="store-info-card bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md" 
+                     id="store-${store.id}" onclick="selectStore('${store.id}')">
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex-1">
+                            <h4 class="text-lg font-bold text-gray-800 mb-1">${store.name}</h4>
+                            <div class="flex items-center flex-wrap gap-2 mb-2">
+                                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                                    ${store.genre}
+                                </span>
+                                <span class="google-rating">
+                                    <i class="fas fa-star mr-1"></i>${store.googleRating}
+                                </span>
+                                <span class="distance-badge">
+                                    ${store.distance}m
+                                </span>
+                                <span class="operating-status ${store.isOpen ? 'status-open' : 'status-closed'}">
+                                    ${store.isOpen ? '営業中' : '営業時間外'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center">
+                        <div class="text-sm text-gray-600">
+                            <i class="fas fa-clock mr-1"></i>
+                            ${store.openHours}
+                        </div>
+                        <button onclick="selectStoreForRating('${store.id}')" 
+                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">
+                            <i class="fas fa-star mr-1"></i>評価する
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 店舗選択
+        function selectStore(storeId) {
+            // 前の選択を解除
+            if (selectedStoreId) {
+                const prevCard = document.getElementById(`store-${selectedStoreId}`);
+                if (prevCard) {
+                    prevCard.classList.remove('selected');
+                }
+            }
+            
+            selectedStoreId = storeId;
+            const card = document.getElementById(`store-${storeId}`);
+            if (card) {
+                card.classList.add('selected');
+            }
+        }
+
+        // 店舗を評価用に選択
+        function selectStoreForRating(storeId) {
+            selectStore(storeId);
+            const store = nearbyRestaurants.find(s => s.id === storeId);
+            if (store) {
+                selectRestaurantFromMap(store.name, store.genre);
+            }
         }
 
         // 地図から店舗選択
@@ -525,6 +745,7 @@
             document.getElementById('authSection').classList.remove('hidden');
             document.getElementById('mainContent').classList.add('hidden');
             document.getElementById('userInfo').classList.add('hidden');
+            document.getElementById('storeInfoSection').classList.add('hidden');
             
             // フォームリセット
             document.getElementById('companyName').value = '';
@@ -579,6 +800,15 @@
             document.getElementById('restaurantLink').value = '';
             document.getElementById('comment').value = '';
             setRating(0);
+            
+            // 選択状態をリセット
+            if (selectedStoreId) {
+                const card = document.getElementById(`store-${selectedStoreId}`);
+                if (card) {
+                    card.classList.remove('selected');
+                }
+                selectedStoreId = null;
+            }
             
             displayRestaurants();
             alert('店舗情報を投稿しました！');
@@ -729,9 +959,9 @@
 </html>
     <script id="html_badge_script1">
         window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
-            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDs2XDgKJOmBJON5MF5XWdMH2v53rU7vMVXkbBi2oZP1M5yYXNKp%2FYDcFvPrQ%2FwX5xGRAOncwB85PfCZAobCgpzVKV3NBLXsN8Tqctxj5n7xFibr3tWVznkiOhgn6I5p3aGt61kt9ZzZvCnbial%2F2JwmTdO7t5cmmyCZotWQBwLphiOVh%2Fe1KGRW7uw2SisAKVYbXt0gSQS5ilPw8oMmUyhaQI0TtlJO8mzFcDNj7aIg4mUzOTMYFurSbgkGveIzj7ok3t%2BnJd9EYp%2Bgk7FbNoPq0Ar8AjQh0r1RUQyizKQf%2FFGw5VJyY4CPstOObFKfxZicIK9Puzr%2Bw%2FdOdKYuBKrN7td9hDlhp9LZroclisQx7C07TiS8KYk8jGb6LO1mOVtsDoVCmr2ZE6DX%2FxsUfMwcPu%2FblCYaofs8yzaxIbdvMEV5pkoObHEFL30q1W9s0Mg8S%2Bb9JBo85o9DXU3sZWw6PsPJ7pe0yKt7yohJI6OTTXM8ssZOzPIFP4Gq%2FNVRLZ2oO1p7iJQEVbDYpR7jdP4g%3D";
+            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDhE8BgjV6VS6YS2soVcmh%2BfN762u9viyxZMog4HlZ%2FvUTyqVrW%2B0cR2SaQnafotw%2F8SVgCZ%2Bwl1MsaXamFIqdecFe7KXAj1sow%2FJEcypLtJ1gMbcn%2FcG0wBY%2Bqpd%2BT7Sw9CxpN1begAD%2BdlbgmRNyvGu0rha8ysQz%2BVtOjm6ds8LD6cLHaM10hvaA3m0myKSu3NI9DOb1Pmq7CleMuqgPCpiHybTxcWzlqDjo3LokIvOGzdfs3bjb7mio597gQ%2FRG1ljWJat0SmgFOE6gIkms%2F64CCCxBzAeVFmJKLDsB2ka%2FU1MOxqkBKjAFm5YlvYheRdLRquY9TjTDrQNPkz3EfUBfvlQQ6jeuHk5ZXmTOlaqhvblHCQVZyjj5KJwmodtQjWjh7Wz48XZp247Gg%2FJN4Oi6i7one0YZ120Cr0LKJ9xopM98MW9jviFQdJCXKhRsm8FWIxvt5VhNFWux7y8DrxH%2FzjX%2BsGxxt14Cv3vUq9y8abJTnI%2Fd6ILtOHZB2mZQcuAcjBMuzXbZUdM%2BQm40os%3D";
         window.__genspark_locale = "ja-JP";
-        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDs2XDgKJOmBJON5MF5XWdMH2v53rU7vMVXkbBi2oZP1M5yYXNKp/YDcFvPrQ/wX5xGRAOncwB85PfCZAobCgpzVKV3NBLXsN8Tqctxj5n7xFibr3tWVznkiOhgn6I5p3aGt61kt9ZzZvCnbial/2JwmTdO7t5cmmyCZotWQBwLphiOVh/e1KGRW7uw2SisAKVYbXt0gSQS5ilPw8oMmUyhaQI0TtlJO8mzFcDNj7aIg4mUzOTMYFurSbgkGveIzj7ok3t+nJd9EYp+gk7FbNoPq0Ar8AjQh0r1RUQyizKQf/FGw5VJyY4CPstOObFKfxZicIK9Puzr+w/dOdKYuBKrN7td9hDlhp9LZroclisQx7C07TiS8KYk8jGb6LO1mOVtsDoVCmr2ZE6DX/xsUfMwcPu/blCYaofs8yzaxIbdvMEV5pkoObHEFL30q1W9s0Mg8S+b9JBo85o9DXU3sZWw6PsPJ7pe0yKt7yohJI6OTTXM8ssZOzPIFP4Gq/NVRLZ2oO1p7iJQEVbDYpR7jdP4g=";
+        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDhE8BgjV6VS6YS2soVcmh+fN762u9viyxZMog4HlZ/vUTyqVrW+0cR2SaQnafotw/8SVgCZ+wl1MsaXamFIqdecFe7KXAj1sow/JEcypLtJ1gMbcn/cG0wBY+qpd+T7Sw9CxpN1begAD+dlbgmRNyvGu0rha8ysQz+VtOjm6ds8LD6cLHaM10hvaA3m0myKSu3NI9DOb1Pmq7CleMuqgPCpiHybTxcWzlqDjo3LokIvOGzdfs3bjb7mio597gQ/RG1ljWJat0SmgFOE6gIkms/64CCCxBzAeVFmJKLDsB2ka/U1MOxqkBKjAFm5YlvYheRdLRquY9TjTDrQNPkz3EfUBfvlQQ6jeuHk5ZXmTOlaqhvblHCQVZyjj5KJwmodtQjWjh7Wz48XZp247Gg/JN4Oi6i7one0YZ120Cr0LKJ9xopM98MW9jviFQdJCXKhRsm8FWIxvt5VhNFWux7y8DrxH/zjX+sGxxt14Cv3vUq9y8abJTnI/d6ILtOHZB2mZQcuAcjBMuzXbZUdM+Qm40os=";
     </script>
     
     <script id="html_notice_dialog_script" src="https://www.genspark.ai/notice_dialog.js"></script>
